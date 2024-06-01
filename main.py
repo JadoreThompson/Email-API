@@ -1,32 +1,54 @@
-from fastapi import FastAPI
-from fastapi.encoders import jsonable_encoder
+import uvicorn
+from fastapi import FastAPI,  HTTPException
 from pydantic import BaseModel
+
+import smtplib
+import ssl
+from email.message import EmailMessage
+
+import os
+from dotenv import load_dotenv
+
 
 app = FastAPI()
 
+class Email(BaseModel):
+    recipient: str
+    subject: str
+    body: str
 
-class Item(BaseModel):
-    name: str | None = None
-    description: str | None = None
-    price: float | None = None
-    tax: float = 10.5
-    tags: list[str] = []
+load_dotenv('.env')
+email_sender = os.getenv('EMAIL_SENDER')
+email_password = os.getenv('EMAIL_PASSWORD')
+
+@app.get("/")
+def read_root():
+    return {"Hello": "World"}
+
+@app.post('/send_email')
+def send_email(email: Email):
+    try:
+        em = EmailMessage()
+        em['From'] = email_sender
+        em['To'] = email.recipient
+        em['Subject'] = email.subject
+        em.set_content(email.body)
+
+        context = ssl.create_default_context()
+
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465, context=context) as server:
+            server.login(email_sender, email_password)
+            server.sendmail(email_sender, email.recipient, em.as_string())
+
+        return {"message": "Email sent successfully"}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-items = {
-    "foo": {"name": "Foo", "price": 50.2},
-    "bar": {"name": "Bar", "description": "The bartenders", "price": 62, "tax": 20.2},
-    "baz": {"name": "Baz", "description": None, "price": 50.2, "tax": 10.5, "tags": []},
-}
+    return {"Email": email}
 
 
-@app.get("/items/{item_id}", response_model=Item)
-async def read_item(item_id: str):
-    return items[item_id]
 
-
-@app.put("/items/{item_id}", response_model=Item)
-async def update_item(item_id: str, item: Item):
-    update_item_encoded = jsonable_encoder(item)
-    items[item_id] = update_item_encoded
-    return update_item_encoded
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=8080, reload=True)
